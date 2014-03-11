@@ -169,19 +169,19 @@ end
 function out = get_basis_grads(dim)
 out = [-ones(1,dim);diag(ones(dim,1))];
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% function [lens,vecs] = get_side_lengths(verts)
-% [nv,dim] = size(verts);
-% lens = zeros(nv,1);
-% vecs = zeros(nv,dim);
-% if dim == 2
-%     dd = verts(3,:)-verts(2,:); lens(1) = norm(dd); vecs(1,:) = [dd(2),-dd(1)]./lens(1);
-%     dd = verts(1,:)-verts(3,:); lens(2) = norm(dd); vecs(2,:) = [dd(2),-dd(1)]./lens(2);
-%     dd = verts(2,:)-verts(1,:); lens(3) = norm(dd); vecs(3,:) = [dd(2),-dd(1)]./lens(3);
-% elseif dim == 3
+function [lens,vecs] = get_side_lengths(verts)
+[nv,dim] = size(verts);
+lens = zeros(nv,1);
+vecs = zeros(nv,dim);
+if dim == 2
+    dd = verts(3,:)-verts(2,:); lens(1) = norm(dd); vecs(1,:) = [dd(2),-dd(1)]./lens(1);
+    dd = verts(1,:)-verts(3,:); lens(2) = norm(dd); vecs(2,:) = [dd(2),-dd(1)]./lens(2);
+    dd = verts(2,:)-verts(1,:); lens(3) = norm(dd); vecs(3,:) = [dd(2),-dd(1)]./lens(3);
+elseif dim == 3
 %     u = cross([verts(1,:)-verts(2,:), 0]',[verts(3,:)-verts(2,:), 0]')'; vecs(1,:) = u./norm(u);
 %     u = cross([verts(3,:)-verts(2,:), 0]',[verts(1,:)-verts(2,:), 0]')'; vecs(2,:) = u./norm(u);
 %     u = cross([verts(1,:)-verts(3,:), 0]',[verts(2,:)-verts(3,:), 0]')'; vecs(3,:) = u./norm(u);
-% end
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = matrix_contribution(dim,nv,mat,v,fv)
 a = 1/nv;

@@ -97,10 +97,10 @@ else
             % ---------------------------------------
             m = get_ref_mass_matrix(dim)*Vside;
 %             s = get_local_stiffness_matrix(dim,lens,Vside);
-            g = get_local_gradient_term(dim,invJ,detJ);
+            g = get_local_gradient_term(dim,lens,vecs,Vside,invJ,lens(end));
             % Append to Global Matrices
             % -------------------------
-            M = M + matrix_contribution(dim,nv,m,eee,ff);
+%             M = M + matrix_contribution(dim,nv,m,eee,ff);
 %             K = K + matrix_contribution(dim,nv,s,eee,ff);
             for j=1:dim
                 G{j} = G{j} + matrix_contribution(dim,nv,g{j},eee,ff);
@@ -160,25 +160,20 @@ elseif dim == 3
              R(2) - R(1) - R(3), R(1) - R(2) - R(3), 2*R(3)    ]./2;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function out = get_local_gradient_term(dim,invJ,detJ)
+function out = get_local_gradient_term(dim,lens,vecs,vol,invJ,detJ)
 out = cell(dim,1);
 if dim == 2
-%     a = -lens(end)*([lens,lens].*vecs)./(2*vol);
-    b = [1/2,1/2,0];
+    a = -lens(end)*([lens,lens].*vecs)./(2*vol);
+    b = [1/2,0,0];
 elseif dim == 3
 %     a = -lens(end)*([lens,lens,lens].*vecs)./(6*vol);
-    b = [1/6,1/6,1/6,0];
+    b = [1/6,1/6,0,0];
+    db = get_basis_grads(dim);
+    a = detJ*db*invJ;
 end
-% for d=1:dim
-%     out{d} = zeros(dim+1);
-%     for j=1:dim+1
-%         out{d}(:,j) = a(:,d)*b(j);
-%     end
-% end
-db = get_basis_grads(dim);
-c = db*invJ*detJ;
 for i=1:dim
-    out{i} = c(:,i)*b;
+%     out{i} = c(:,i)*b;
+    out{i} = a(:,i)*b;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function [lens,vecs] = get_side_lengths(verts)
@@ -198,21 +193,20 @@ end
 function out = matrix_contribution(dim,nv,mat,v,fv)
 a = 1/nv;
 out = zeros(nv,nv);
-out(v,v(1)) = mat(1:length(v),1);
-% out(v,v) = mat(1:length(v),1:length(v));
+out(v,v) = mat(1:length(v),1:length(v));
 for i=1:length(v)
     out(v(i),:) = out(v(i),:) + a*mat(i,end);
     out(:,v(i)) = out(:,v(i)) + a*mat(end,i);
 end
 out(:,:) = out(:,:) + a*a*mat(end,end);
-if dim == 3
-    b = 1/length(fv);
-    out(fv,:) = out(fv,:) + a*b*mat(end-1,end);
-    out(:,fv) = out(:,fv) + a*b*mat(end,end-1);
-    out(fv,fv) = out(fv,fv) + b*b*mat(end-1,end-1);
-    for i=1:length(v)
-        out(v(i),fv) = out(v(i),fv) + b*mat(i,end-1);
-        out(fv,v(i)) = out(fv,v(i)) + b*mat(end-1,i);
-    end
-end
+% if dim == 3
+%     b = 1/length(fv);
+%     out(fv,:) = out(fv,:) + a*b*mat(end-1,end);
+%     out(:,fv) = out(:,fv) + a*b*mat(end,end-1);
+%     out(fv,fv) = out(fv,fv) + b*b*mat(end-1,end-1);
+%     for i=1:length(v)
+%         out(v(i),fv) = out(v(i),fv) + b*mat(i,end-1);
+%         out(fv,v(i)) = out(fv,v(i)) + b*mat(end-1,i);
+%     end
+% end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
