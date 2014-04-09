@@ -23,6 +23,8 @@
 %                   3) 'faces' can take either cell or array structure 
 %                      - if array structure: form (nfaces x npts_face)
 %                                            where npts_face is constant
+%                      - array structure can only be used if each face
+%                        has the same number of vertices
 %                   4) Vertices in 'verts' do not need any proper ordering
 %                   5) Vertices on each face need to be in CCW order
 %
@@ -116,6 +118,9 @@ else
     varargout{1} = M;
     varargout{2} = K;
     varargout{3} = G;
+    if nargout == 4
+        varargout{4} = M*ones(nv,1);
+    end
 end
 
 
