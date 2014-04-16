@@ -29,7 +29,7 @@
 %                   5) Vertices on each face need to be in CCW order
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [varargout] = PWLD_surface(verts, faces)
+function [varargout] = PWLD_surface_ind(verts, faces)
 
 if nargin == 0
     error('--- No inputs specified. ---')
@@ -40,28 +40,27 @@ else
     if nv > mv, verts = verts'; end
     [nv,dim] = size(verts);
     rcenter = get_center_point(verts);
-    
-    % Allocate Matrix Memory
-    % ----------------------
-    M = zeros(nv,nv);           % mass matrix
-    G = cell(dim,1);            % gradient matrix
-    for i=1:dim
-        G{i} = zeros(nv,nv);
-    end
-    
     % 1D Generation
     % -------------
     if dim == 1
         error('Choosing not to do PWLD in 1D -- is this just LD???')
-    end
     % 2D Generation
     % -------------
-    if dim == 2
-        ffaces{1} = 1:nv;
-    end
+    elseif dim == 2
+        nfaces = nv;
+        ffaces = cell(nfaces,1);
+        nefaces = ones(nv,1);
+        for i=1:nv
+            if i==nv
+                e = [nv,1];
+            else
+                e = [i,i+1];
+            end
+            ffaces{i} = e;
+        end
     % 3D Generation
     % -------------
-    if dim == 3
+    elseif dim == 3
         % Check face structure
         % --------------------
         if nargin ~= 2
@@ -71,27 +70,42 @@ else
             error('--- No face input specified. ---')
         end
         if iscell(faces)
+            nfaces = length(faces);
             ffaces = faces;
         else
-            ffaces = cell(size(faces,1),1);
-            for i=1:length(ffaces)
+            nfaces = size(faces,1);
+            ffaces = cell(nfaces,1);
+            for i=1:nfaces
                 ffaces{i} = faces(i,:);
             end
+        end
+        nefaces = zeros(nfaces,1);
+        for i=1:nfaces
+            nefaces(i) = length(ffaces{i});
+        end
+    end
+    % Allocate Matrix Memory
+    % ----------------------
+    M = cell(nfaces,1);           % mass matrix
+    G = cell(nfaces,1);           % gradient matrix
+    for i=1:nfaces
+        M{i} = zeros(nv,nv);
+        G{i} = cell(dim,1);
+        for d=1:dim
+            G{i}{d} = zeros(nv,nv);
         end
     end
     % Loop through Faces
     % ------------------
-    for f=1:length(ffaces)
+    for f=1:nfaces
         ff = ffaces{f};
-        fcenter = get_center_point(verts(ff,:));
-        ne = length(ff);
         % Loop through Edges on Face
         % --------------------------
-        for e=1:ne
-            if e == ne
+        for e=1:nefaces(f)
+            if e == length(ff)
                 ee = ff(1);
             else
-                ee = ff(e+1);
+                ee = ff(e+1); 
             end
             eee = [ff(e),ee];
             % Edge Triangle/Tetrahedron Information
@@ -99,21 +113,21 @@ else
             if dim==2
                 lverts = [verts(eee,:);rcenter];
             else
+                fcenter = get_center_point(verts(ff,:));
                 lverts = [verts(eee,:);fcenter;rcenter];
             end
-            [J,invJ,detJ,Vside] = get_jacobian(lverts);
+            [~,invJ,detJ,Vside] = get_jacobian(lverts);
             [lens,vecs] = get_side_lengths(lverts);
             % Reference Triangle/Tetrahedron Matrices
             % ---------------------------------------
-            m = get_ref_mass_matrix(dim)*Vside;
+            m = get_ref_mass_matrix(dim)*lens(end);
 %             s = get_local_stiffness_matrix(dim,lens,Vside);
             g = get_local_gradient_term(dim,lens,vecs,Vside,invJ,detJ);
             % Append to Global Matrices
             % -------------------------
-            M = M + matrix_contribution(dim,nv,m,eee,ff);
-%             K = K + matrix_contribution(dim,nv,s,eee,ff);
+            M{f} = M{f} + matrix_contribution(dim,nv,m,eee,ff);
             for j=1:dim
-                G{j} = G{j} + matrix_contribution(dim,nv,g{j},eee,ff);
+                G{f}{j} = G{f}{j} + matrix_contribution(dim,nv,g{j},eee,ff);
             end
         end
     end
@@ -177,7 +191,6 @@ elseif dim == 3
     a = detJ*db*invJ;
 end
 for i=1:dim
-%     out{i} = c(:,i)*b;
     out{i} = a(:,i)*b;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
