@@ -29,102 +29,77 @@
 %                   5) Vertices on each face need to be in CCW order
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [varargout] = PWLD_surface(verts, faces)
+function varargout = PWLD_surface_ind2(verts, sverts, flags)
 
 if nargin == 0
     error('--- No inputs specified. ---')
-else
-    % Prepare Vertices and Dimensional Space
-    % --------------------------------------
-    [mv,nv] = size(verts);
-    if nv > mv, verts = verts'; end
-    [nv,dim] = size(verts);
-    rcenter = get_center_point(verts);
+end
+% Prepare Vertices and Dimensional Space
+% --------------------------------------
+[nv,dim] = size(verts);
+ns = length(sverts);
+rcenter = get_center_point(verts);
+scenter = get_center_point(verts(sverts,:));
+if dim == 1
+    error('Choosing not to do PWLD in 1D -- is this just LD???')
+end
+if nargin ~= 3
+    flags = [1,1];
+end
+% Small error checks
+if sum(flags) ~= nargout
+    error('Insufficient output variables.')
+end
+% Allocate Memory
+a = 1/nv;
+b = 1/ns;
+M = zeros(ns,ns);
+G = cell(dim,1);
+g = cell(dim,1);
+for d=1:dim
+    g{d} = zeros(nv,nv);
+end
+% Dimension == 2
+if dim == 2
+    tverts = [verts(sverts,:);rcenter];
+    len = norm(verts(sverts,:));
+    M = len/6*[2,1;1,2];
+    if flags(2) == 1
+        [~, invJ, detJ, ~] = get_jacobian(tverts);
+        db = get_basis_grads(dim);
+        b = [1/2,1/2,0]*len;
+        c = db*invJ*detJ;
+        for d=1:dim
+            g = (c(:,d)*b)';
+            G{d} = matrix_contribution(dim,nv,g,sverts,sverts);
+        end
+    end
+end
+% Dimension == 3
+if dim == 3
+    mm = 1*[2,1,1;1,2,1;1,1,2;0,0,0]./12;
     
-    % Allocate Matrix Memory
-    % ----------------------
-    M = zeros(nv,nv);           % mass matrix
-    G = cell(dim,1);            % gradient matrix
-    for i=1:dim
-        G{i} = zeros(nv,nv);
+    for i=1:ns
+        ii = [i,mod(i,ns)];
+        [~, invJ, detJ, ~] = get_jacobian(tverts);
+        area = polygonArea3d([verts(sverts(ii),:);scenter]);
+        tm = area*mm;
+        M(ii,ii) = tm(1:2,1:2);
+        
     end
-    
-    % 1D Generation
-    % -------------
-    if dim == 1
-        error('Choosing not to do PWLD in 1D -- is this just LD???')
-    end
-    % 2D Generation
-    % -------------
-    if dim == 2
-        ffaces{1} = 1:nv;
-    end
-    % 3D Generation
-    % -------------
-    if dim == 3
-        % Check face structure
-        % --------------------
-        if nargin ~= 2
-            error('--- No face input specified. ---')
-        end
-        if isempty(faces)
-            error('--- No face input specified. ---')
-        end
-        if iscell(faces)
-            ffaces = faces;
-        else
-            ffaces = cell(size(faces,1),1);
-            for i=1:length(ffaces)
-                ffaces{i} = faces(i,:);
-            end
-        end
-    end
-    % Loop through Faces
-    % ------------------
-    for f=1:length(ffaces)
-        ff = ffaces{f};
-        fcenter = get_center_point(verts(ff,:));
-        ne = length(ff);
-        % Loop through Edges on Face
-        % --------------------------
-        for e=1:ne
-            if e == ne
-                ee = ff(1);
-            else
-                ee = ff(e+1);
-            end
-            eee = [ff(e),ee];
-            % Edge Triangle/Tetrahedron Information
-            % -------------------------------------
-            if dim==2
-                lverts = [verts(eee,:);rcenter];
-            else
-                lverts = [verts(eee,:);fcenter;rcenter];
-            end
-            [J,invJ,detJ,Vside] = get_jacobian(lverts);
-            [lens,vecs] = get_side_lengths(lverts);
-            % Reference Triangle/Tetrahedron Matrices
-            % ---------------------------------------
-            m = get_ref_mass_matrix(dim)*Vside;
-%             s = get_local_stiffness_matrix(dim,lens,Vside);
-            g = get_local_gradient_term(dim,lens,vecs,Vside,invJ,detJ);
-            % Append to Global Matrices
-            % -------------------------
-            M = M + matrix_contribution(dim,nv,m,eee,ff);
-%             K = K + matrix_contribution(dim,nv,s,eee,ff);
-            for j=1:dim
-                G{j} = G{j} + matrix_contribution(dim,nv,g{j},eee,ff);
-            end
-        end
-    end
-    % Set Outputs
-    varargout{1} = M;
-    varargout{2} = G;
 end
 
+% Set Outputs
+counter = 1;
+if flags(1) == 1
+    varargout{counter} = M;
+    counter = counter + 1;
+end
+if flags(2) == 1
+    varargout{counter} = G;
+end
 
 return
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -143,10 +118,23 @@ for i=1:dim
 end
 invJ = J^(-1);
 detJ = abs(det(J));
-vol = detJ/factorial(dim);
+if dim == 2
+    vol = detJ/2;
+else
+    vol = detJ/6;
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_basis_grads(dim)
-out = [-ones(1,dim);diag(ones(dim,1))];
+if dim == 2
+    out = [    -1    -1
+                1     0
+                0     1];
+else
+    out = [    -1    -1    -1
+                1     0     0
+                0     1     0
+                0     0     1];
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_ref_mass_matrix(dim)
 if dim==2
@@ -169,7 +157,7 @@ function out = get_local_gradient_term(dim,lens,vecs,vol,invJ,detJ)
 out = cell(dim,1);
 if dim == 2
     a = -lens(end)*([lens,lens].*vecs)./(2*vol);
-    b = [1/2,0,0];
+    b = [1/2,1/2,0];
 elseif dim == 3
 %     a = -lens(end)*([lens,lens,lens].*vecs)./(6*vol);
     b = [1/6,1/6,0,0];
@@ -177,7 +165,7 @@ elseif dim == 3
     a = detJ*db*invJ;
 end
 for i=1:dim
-    out{i} = a(:,i)*b;
+    out{i} = (a(:,i)*b)';
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function [lens,vecs] = get_side_lengths(verts)
@@ -206,7 +194,7 @@ for i=1:length(v)
     out(v(i),:) = out(v(i),:) + a*mat(i,end);
     out(:,v(i)) = out(:,v(i)) + a*mat(end,i);
 end
-out(:,:) = out(:,:) + a*a*mat(end,end);
+out = out + a*a*mat(end,end);
 if dim == 3
     b = 1/length(fv);
     out(fv,:) = out(fv,:) + a*b*mat(end-1,end);
@@ -220,3 +208,4 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_tet_ordering()
 out = [2,3,4;1,4,3;1,2,4;1,3,2];
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

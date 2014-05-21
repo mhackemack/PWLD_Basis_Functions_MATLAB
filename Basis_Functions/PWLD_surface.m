@@ -2,14 +2,14 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 %   Title:          Piecewise Linear Discontinuous (PWLD) Basis Function 
-%                   Generator - Volume Integrals
+%                   Generator - Surface Integrals
 %
 %   Author:         Michael W. Hackemack
 %   Institution:    Texas A&M University
 %   Year:           2014
 %
 %   Description:    MATLAB script to produce the mass, stiffness, and
-%                   gradient matrices for an element's volume using 
+%                   gradient matrices for an element's surface using 
 %                   the PWLD DGFEM basis functions.
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -29,28 +29,31 @@
 %                   5) Vertices on each face need to be in CCW order
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [varargout] = PWLD_volume(verts, faces)
+function [varargout] = PWLD_surface(verts, faces)
 
 if nargin == 0
     error('--- No inputs specified. ---')
 else
     % Prepare Vertices and Dimensional Space
     % --------------------------------------
-    [mv,nv] = size(verts); 
+    [mv,nv] = size(verts);
     if nv > mv, verts = verts'; end
     [nv,dim] = size(verts);
     rcenter = get_center_point(verts);
+    
     % Allocate Matrix Memory
     % ----------------------
-    M = zeros(nv,nv);       % mass matrix
-    K = zeros(nv,nv);       % stiffness matrix
-    G = cell(dim,1);        % gradient matrix
+    M = zeros(nv,nv);           % mass matrix
+    G = cell(dim,1);            % gradient matrix
     for i=1:dim
         G{i} = zeros(nv,nv);
     end
+    
     % 1D Generation
     % -------------
-    if dim == 1, error('Choosing not to do PWLD in 1D -- is this just LD???'), end
+    if dim == 1
+        error('Choosing not to do PWLD in 1D -- is this just LD???')
+    end
     % 2D Generation
     % -------------
     if dim == 2
@@ -61,22 +64,24 @@ else
     if dim == 3
         % Check face structure
         % --------------------
-        if nargin ~= 2
-            error('--- No face input specified. ---')
-        end
-        if isempty(faces)
-            error('--- No face input specified. ---')
+        if nargin < 2
+%             error('--- No face input specified. ---')
+            faces = convhulln(verts);
+        else
+            if isempty(faces)
+%                 error('--- No face input specified. ---')
+                faces = convhulln(verts);
+            end
         end
         if iscell(faces)
             ffaces = faces;
         else
-            ffaces = cell(size(faces,1),1);
+            ffaces = cell(length(faces),1);
             for i=1:size(faces,1)
                 ffaces{i} = faces(i,:);
             end
         end
     end
-    
     % Loop through Faces
     % ------------------
     for f=1:length(ffaces)
@@ -99,16 +104,17 @@ else
             else
                 lverts = [verts(eee,:);fcenter;rcenter];
             end
-            [~, invJ, detJ, svol] = get_jacobian(lverts);
+            [J,invJ,detJ,Vside] = get_jacobian(lverts);
+            [lens,vecs] = get_side_lengths(lverts);
             % Reference Triangle/Tetrahedron Matrices
             % ---------------------------------------
-            m = get_ref_mass_matrix(dim)*svol;
-            s = get_local_stiffness_matrix(dim,invJ,detJ);
-            g = get_local_gradient_term(dim,invJ,detJ);
+            m = get_ref_mass_matrix(dim)*Vside;
+%             s = get_local_stiffness_matrix(dim,lens,Vside);
+            g = get_local_gradient_term(dim,lens,vecs,Vside,invJ,detJ);
             % Append to Global Matrices
             % -------------------------
             M = M + matrix_contribution(dim,nv,m,eee,ff);
-            K = K + matrix_contribution(dim,nv,s,eee,ff);
+%             K = K + matrix_contribution(dim,nv,s,eee,ff);
             for j=1:dim
                 G{j} = G{j} + matrix_contribution(dim,nv,g{j},eee,ff);
             end
@@ -116,11 +122,7 @@ else
     end
     % Set Outputs
     varargout{1} = M;
-    varargout{2} = K;
-    varargout{3} = G;
-    if nargout == 4
-        varargout{4} = M*ones(nv,1);
-    end
+    varargout{2} = G;
 end
 
 
@@ -150,41 +152,7 @@ else
     vol = detJ/6;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function out = get_ref_mass_matrix(dim)
-if dim==2
-    out = [2,1,1;1,2,1;1,1,2]./12;
-elseif dim==3
-    out = [2,1,1,1;1,2,1,1;1,1,2,1;1,1,1,2]./20;
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function out = get_local_stiffness_matrix(dim,invJ,detJ)
-% R = lens.^2/(4*A);
-% out = [  2*R(1), R(3) - R(1) - R(2), R(2) - R(1) - R(3);...
-%          R(3) - R(1) - R(2), 2*R(2), R(1) - R(2) - R(3);...
-%          R(2) - R(1) - R(3), R(1) - R(2) - R(3), 2*R(3)    ]./2;
-db = get_basis_grads(dim);
-if dim == 2
-    out = (db*(invJ*invJ')*db').*detJ/2;
-else
-    out = (db*(invJ*invJ')*db').*detJ/6;
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function out = get_local_gradient_term(dim,invJ,detJ)
-out = cell(dim,1);
-% a = -([lens,lens].*vecs)./6;
-if dim == 2
-    b = ones(1,dim+1)./6;
-else
-    b = ones(1,dim+1)./24;
-end
-db = get_basis_grads(dim);
-c = db*invJ*detJ;
-for i=1:dim
-    out{i} = c(:,i)*b;
-end
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_basis_grads(dim)
-% out = [-ones(1,dim);diag(ones(dim,1))];
 if dim == 2
     out = [    -1    -1
                 1     0
@@ -196,6 +164,38 @@ else
                 0     0     1];
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function out = get_ref_mass_matrix(dim)
+if dim==2
+    out = [2,1,0;1,2,0;0,0,0]./6;
+elseif dim==3
+    out = [2,1,1,0;1,2,1,0;1,1,2,0;0,0,0,0]./12;
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function out = get_local_stiffness_matrix(dim,lens,A)
+R = lens.^2/(4*A);
+if dim == 2
+    
+elseif dim == 3
+    out = [  2*R(1), R(3) - R(1) - R(2), R(2) - R(1) - R(3);...
+             R(3) - R(1) - R(2), 2*R(2), R(1) - R(2) - R(3);...
+             R(2) - R(1) - R(3), R(1) - R(2) - R(3), 2*R(3)    ]./2;
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function out = get_local_gradient_term(dim,lens,vecs,vol,invJ,detJ)
+out = cell(dim,1);
+if dim == 2
+    a = -lens(end)*([lens,lens].*vecs)./(2*vol);
+    b = [1/2,0,0];
+elseif dim == 3
+%     a = -lens(end)*([lens,lens,lens].*vecs)./(6*vol);
+    b = [1/6,1/6,0,0];
+    db = get_basis_grads(dim);
+    a = detJ*db*invJ;
+end
+for i=1:dim
+    out{i} = a(:,i)*b;
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function [lens,vecs] = get_side_lengths(verts)
 [nv,dim] = size(verts);
 lens = zeros(nv,1);
@@ -205,9 +205,13 @@ if dim == 2
     dd = verts(1,:)-verts(3,:); lens(2) = norm(dd); vecs(2,:) = [dd(2),-dd(1)]./lens(2);
     dd = verts(2,:)-verts(1,:); lens(3) = norm(dd); vecs(3,:) = [dd(2),-dd(1)]./lens(3);
 elseif dim == 3
-%     u = cross([verts(1,:)-verts(2,:), 0]',[verts(3,:)-verts(2,:), 0]')'; vecs(1,:) = u./norm(u);
-%     u = cross([verts(3,:)-verts(2,:), 0]',[verts(1,:)-verts(2,:), 0]')'; vecs(2,:) = u./norm(u);
-%     u = cross([verts(1,:)-verts(3,:), 0]',[verts(2,:)-verts(3,:), 0]')'; vecs(3,:) = u./norm(u);
+    ord = get_tet_ordering();
+    for i=1:4
+        tord = ord(i,:);
+        u = cross([verts(tord(1),:)-verts(tord(2),:)]',[verts(tord(3),:)-verts(tord(2),:)]')';
+        lens(i) = norm(u,2)/2;
+        vecs(i,:) = u./norm(u);
+    end
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = matrix_contribution(dim,nv,mat,v,fv)
@@ -229,3 +233,6 @@ if dim == 3
         out(fv,v(i)) = out(fv,v(i)) + b*mat(end-1,i);
     end
 end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function out = get_tet_ordering()
+out = [2,3,4;1,4,3;1,2,4;1,3,2];

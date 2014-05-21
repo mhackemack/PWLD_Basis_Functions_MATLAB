@@ -29,7 +29,7 @@
 %                   5) Vertices on each face need to be in CCW order
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [varargout] = PWLD_surface_ind(verts, faces)
+function [varargout] = PWLD_surface_ind(verts, faces, flags)
 
 if nargin == 0
     error('--- No inputs specified. ---')
@@ -58,16 +58,22 @@ else
             end
             ffaces{i} = e;
         end
+        if nargin ~= 3
+            flags = [1,1];
+        end
     % 3D Generation
     % -------------
     elseif dim == 3
         % Check face structure
         % --------------------
-        if nargin ~= 2
-            error('--- No face input specified. ---')
-        end
-        if isempty(faces)
-            error('--- No face input specified. ---')
+        if nargin < 2
+%             error('--- No face input specified. ---')
+            faces = convhulln(verts);
+        else
+            if isempty(faces)
+%                 error('--- No face input specified. ---')
+                faces = convhulln(verts);
+            end
         end
         if iscell(faces)
             nfaces = length(faces);
@@ -83,6 +89,9 @@ else
         for i=1:nfaces
             nefaces(i) = length(ffaces{i});
         end
+        if nargin ~= 3
+            flags = [1,1];
+        end
     end
     % Allocate Matrix Memory
     % ----------------------
@@ -95,6 +104,12 @@ else
             G{i}{d} = zeros(nv,nv);
         end
     end
+    
+    % Small error checks
+    if sum(flags) ~= nargout
+        error('Insufficient output variables.')
+    end
+    
     % Loop through Faces
     % ------------------
     for f=1:nfaces
@@ -118,22 +133,31 @@ else
             end
             [~,invJ,detJ,Vside] = get_jacobian(lverts);
             [lens,vecs] = get_side_lengths(lverts);
-            % Reference Triangle/Tetrahedron Matrices
-            % ---------------------------------------
-            m = get_ref_mass_matrix(dim)*lens(end);
-%             s = get_local_stiffness_matrix(dim,lens,Vside);
-            g = get_local_gradient_term(dim,lens,vecs,Vside,invJ,detJ);
-            % Append to Global Matrices
+            % Mass Matrix Contributions
             % -------------------------
-            M{f} = M{f} + matrix_contribution(dim,nv,m,eee,ff);
-            for j=1:dim
-                G{f}{j} = G{f}{j} + matrix_contribution(dim,nv,g{j},eee,ff);
+            if flags(1) == 1
+                m = get_ref_mass_matrix(dim)*lens(end);
+                M{f} = M{f} + matrix_contribution(dim,nv,m,eee,ff);
+            end
+            % Gradient Matrix Contributions
+            % -----------------------------
+            if flags(2) == 1
+                g = get_local_gradient_term(dim,lens,vecs,Vside,invJ,detJ);
+                for j=1:dim
+                    G{f}{j} = G{f}{j} + matrix_contribution(dim,nv,g{j},eee,ff);
+                end
             end
         end
     end
     % Set Outputs
-    varargout{1} = M;
-    varargout{2} = G;
+    counter = 1;
+    if flags(1) == 1
+        varargout{counter} = M;
+        counter = counter + 1;
+    end
+    if flags(2) == 1
+        varargout{counter} = G;
+    end
 end
 
 
@@ -157,10 +181,23 @@ for i=1:dim
 end
 invJ = J^(-1);
 detJ = abs(det(J));
-vol = detJ/factorial(dim);
+if dim == 2
+    vol = detJ/2;
+else
+    vol = detJ/6;
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_basis_grads(dim)
-out = [-ones(1,dim);diag(ones(dim,1))];
+if dim == 2
+    out = [    -1    -1
+                1     0
+                0     1];
+else
+    out = [    -1    -1    -1
+                1     0     0
+                0     1     0
+                0     0     1];
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_ref_mass_matrix(dim)
 if dim==2
@@ -191,7 +228,7 @@ elseif dim == 3
     a = detJ*db*invJ;
 end
 for i=1:dim
-    out{i} = a(:,i)*b;
+    out{i} = (a(:,i)*b)';
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function [lens,vecs] = get_side_lengths(verts)
@@ -220,7 +257,7 @@ for i=1:length(v)
     out(v(i),:) = out(v(i),:) + a*mat(i,end);
     out(:,v(i)) = out(:,v(i)) + a*mat(end,i);
 end
-out(:,:) = out(:,:) + a*a*mat(end,end);
+out = out + a*a*mat(end,end);
 if dim == 3
     b = 1/length(fv);
     out(fv,:) = out(fv,:) + a*b*mat(end-1,end);
