@@ -1,4 +1,4 @@
-function varargout = mean_value_3D(verts, faces, xin)
+function varargout = mean_value_3D(verts, xin, faces)
 % Get input/output information
 % ----------------------------
 if nargin <= 1, error('No inputs specified.'); end

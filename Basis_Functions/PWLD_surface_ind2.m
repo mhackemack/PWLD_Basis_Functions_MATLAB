@@ -29,63 +29,121 @@
 %                   5) Vertices on each face need to be in CCW order
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function varargout = PWLD_surface_ind2(verts, sverts, flags)
-
+function varargout = PWLD_surface_ind2(varargin)
 if nargin == 0
     error('--- No inputs specified. ---')
 end
+% Collect Input Arguments
+% -----------------------
+nverts = varargin{5};
+verts = varargin{1}(1:nverts,:);
+sverts = varargin{2};
+flags = varargin{3};
 % Prepare Vertices and Dimensional Space
 % --------------------------------------
 [nv,dim] = size(verts);
 ns = length(sverts);
-rcenter = get_center_point(verts);
-scenter = get_center_point(verts(sverts,:));
+rcenter = mean(verts);
+scenter = mean(verts(sverts,:));
 if dim == 1
     error('Choosing not to do PWLD in 1D -- is this just LD???')
 end
-if nargin ~= 3
-    flags = [1,1];
-end
+% if nargin ~= 3
+%     flags = [1,1];
+% end
 % Small error checks
 if sum(flags) ~= nargout
     error('Insufficient output variables.')
 end
 % Allocate Memory
-a = 1/nv;
-b = 1/ns;
+J = zeros(dim,dim);
 M = zeros(ns,ns);
-G = cell(dim,1);
-g = cell(dim,1);
-for d=1:dim
-    g{d} = zeros(nv,nv);
+if flags(2)
+    G = cell(dim,1);
+    for d=1:dim
+        G{d} = zeros(nv,nv);
+    end
 end
 % Dimension == 2
 if dim == 2
-    tverts = [verts(sverts,:);rcenter];
-    len = norm(verts(sverts,:));
+    len = norm(diff(verts(sverts,:)));
     M = len/6*[2,1;1,2];
-    if flags(2) == 1
-        [~, invJ, detJ, ~] = get_jacobian(tverts);
+    if flags(2)
+        % Get Jacobian
+        tverts = [verts(sverts,:);rcenter]';
+        for d=1:dim
+            J(:,d) = tverts(:,d+1) - tverts(:,1);
+        end
+        detJ = J(1,1)*J(2,2)-J(2,1)*J(1,2);
+        invJ = [J(2,2),-J(1,2);-J(2,1),J(1,1)]/detJ;
         db = get_basis_grads(dim);
         b = [1/2,1/2,0]*len;
-        c = db*invJ*detJ;
+        c = db*invJ;
         for d=1:dim
-            g = (c(:,d)*b)';
+%             g = (c(:,d)*b)';
+            g = c(:,d)*b;
             G{d} = matrix_contribution(dim,nv,g,sverts,sverts);
         end
     end
 end
 % Dimension == 3
 if dim == 3
-    mm = 1*[2,1,1;1,2,1;1,1,2;0,0,0]./12;
-    
+    mm = [2,1,1,0;1,2,1,0;1,1,2,0;0,0,0,0]./12;
+    aa = 1/nv;
+    bb = 1/ns;
     for i=1:ns
-        ii = [i,mod(i,ns)];
-        [~, invJ, detJ, ~] = get_jacobian(tverts);
-        area = polygonArea3d([verts(sverts(ii),:);scenter]);
-        tm = area*mm;
-        M(ii,ii) = tm(1:2,1:2);
-        
+        if i==ns
+            ii = [sverts(end),sverts(1)];
+            iii = [ns,1];
+        else
+            ii = sverts(i:i+1);
+            iii = [i,i+1];
+        end
+        fverts = [verts(sverts(iii),:);scenter];
+%         [~, invJ, ~, ~] = get_jacobian(tverts);
+        area = 0.5*norm(cross(fverts(2,:) - fverts(1,:), fverts(3,:) - fverts(1,:)));
+        if flags(1)
+            tm = area*mm;
+            M(iii,iii) =  M(iii,iii) + tm(1:2,1:2);
+            M(:,:) =      M(:,:) + bb*bb*tm(3,3);
+            M(iii(1),:) = M(iii(1),:) + bb*tm(1,3);
+            M(iii(2),:) = M(iii(2),:) + bb*tm(2,3);
+            M(:,iii(1)) = M(:,iii(1)) + bb*tm(3,1);
+            M(:,iii(2)) = M(:,iii(2)) + bb*tm(3,2);
+        end
+        if flags(2)
+            % Get Jacobian
+            tverts = [verts(ii,:);scenter;rcenter]';
+            for d=1:dim
+                J(:,d) = tverts(:,d+1) - tverts(:,1);
+            end
+            detJ = J(1,1)*(J(3,3)*J(2,2)-J(3,2)*J(2,3)) - J(2,1)*(J(3,3)*J(1,2)-J(3,2)*J(1,3)) + J(3,1)*(J(2,3)*J(1,2)-J(2,2)*J(1,3));
+            invJ = [(J(3,3)*J(2,2)-J(3,2)*J(2,3)),-(J(3,3)*J(1,2)-J(3,2)*J(1,3)), (J(2,3)*J(1,2)-J(2,2)*J(1,3));...
+                   -(J(3,3)*J(2,1)-J(3,1)*J(2,3)), (J(3,3)*J(1,1)-J(3,1)*J(1,3)),-(J(2,3)*J(1,1)-J(2,1)*J(1,3));...
+                    (J(3,2)*J(2,1)-J(3,1)*J(2,2)),-(J(3,2)*J(1,1)-J(3,1)*J(1,2)), (J(2,2)*J(1,1)-J(2,1)*J(1,2))]/detJ;
+            
+            db = get_basis_grads(dim);
+            % ========================
+            % CHECK BACK HERE!!!!!!!!!
+            % ========================
+%             b = [1/6,1/6,1/6,0]*area;
+            b = [1/6,1/6,1/6,0]*2*area;
+%             b = [1/6,1/6,1/6,0]*detJ;
+            c = db*invJ;
+            for d=1:dim
+%                 g = (c(:,d)*b)';
+                g = c(:,d)*b;
+                G{d}(ii,ii) = G{d}(ii,ii) + g(1:2,1:2);
+                G{d} = G{d} + aa*aa*g(4,4);
+                G{d}(sverts,sverts) = G{d}(sverts,sverts) + bb*bb*g(3,3);
+                G{d}(ii(1),sverts)  = G{d}(ii(1),sverts)  + bb*g(1,3);
+                G{d}(ii(2),sverts)  = G{d}(ii(2),sverts)  + bb*g(2,3);
+                G{d}(sverts,ii(1))  = G{d}(sverts,ii(1))  + bb*g(3,1);
+                G{d}(sverts,ii(2))  = G{d}(sverts,ii(2))  + bb*g(3,2);
+                G{d}(:,sverts) = G{d}(:,sverts) + aa*bb*g(4,3);
+                G{d}(sverts,:) = G{d}(sverts,:) + aa*bb*g(3,4);
+            end
+        end
     end
 end
 
@@ -110,18 +168,25 @@ return
 function out = get_center_point(verts)
 out = mean(verts);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [J, invJ, detJ, vol] = get_jacobian(verts)
+function [J, invJ, detJ, svol] = get_jacobian(verts)
 dim = size(verts,2);
 J = zeros(dim,dim);
 for i=1:dim
     J(:,i) = verts(i+1,:)' - verts(1,:)';
 end
-invJ = J^(-1);
-detJ = abs(det(J));
-if dim == 2
-    vol = detJ/2;
+% invJ = inv(J);
+% detJ = det(J);
+% svol = detJ / (dim * (dim-1));
+if dim==2
+    detJ = J(1,1)*J(2,2)-J(2,1)*J(1,2);
+    invJ = [J(2,2),-J(1,2);-J(2,1),J(1,1)]/detJ;
+    svol = detJ/2;
 else
-    vol = detJ/6;
+    detJ = J(1,1)*(J(3,3)*J(2,2)-J(3,2)*J(2,3)) - J(2,1)*(J(3,3)*J(1,2)-J(3,2)*J(1,3)) + J(3,1)*(J(2,3)*J(1,2)-J(2,2)*J(1,3));
+    invJ = [(J(3,3)*J(2,2)-J(3,2)*J(2,3)),-(J(3,3)*J(1,2)-J(3,2)*J(1,3)), (J(2,3)*J(1,2)-J(2,2)*J(1,3));...
+           -(J(3,3)*J(2,1)-J(3,1)*J(2,3)), (J(3,3)*J(1,1)-J(3,1)*J(1,3)),-(J(2,3)*J(1,1)-J(2,1)*J(1,3));...
+            (J(3,2)*J(2,1)-J(3,1)*J(2,2)),-(J(3,2)*J(1,1)-J(3,1)*J(1,2)), (J(2,2)*J(1,1)-J(2,1)*J(1,2))]/detJ;
+    svol = detJ/6;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_basis_grads(dim)

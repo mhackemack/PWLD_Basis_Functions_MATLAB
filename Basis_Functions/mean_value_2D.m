@@ -1,4 +1,4 @@
-function varargout = mean_value_2D(verts, xin)
+function varargout = mean_value_2D(verts, xin, faces)
 nout = nargout;
 % check if any input
 if nargin <= 1, error('No inputs specified.'); end
@@ -11,19 +11,16 @@ if nout == 2
     varargout{2} = get_grads(verts, xin, varargout{1}, nv, nx);
 end
 
-return
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 %                               Function Lists
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function vals = get_values(verts, xin, nv, nx)
-global glob
 vals = zeros(nx, nv);
 for j=1:nx
     vals(j,:) = get_single_value(verts, xin(j,:), nv);
 end
-return
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = get_single_value(verts, xin, nv)
 out = zeros(1,nv);
@@ -65,14 +62,12 @@ for i=1:nv
     out(i) = sum(t(v)) / norm(xx(v(2),:));
 end
 out = out / sum(out);
-return
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function grads = get_grads(verts, xin, vals, nv, nx)
-grads = zeros(nx, nv, 2);
+grads = zeros(nv, 2, nx);
 for j=1:nx
-    grads(j,:,:) = get_single_grad(verts, xin(j,:), vals(j,:), nv);
+    grads(:,:,j) = get_single_grad(verts, xin(j,:), vals(j,:), nv);
 end
-return
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function grad = get_single_grad(verts, xin, val, nv)
 grad = zeros(nv,2);
@@ -120,6 +115,5 @@ end
 for i=1:nv
     grad(i,:) = val(i)*(R(i,:) - val*R);
 end
-return
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

@@ -29,19 +29,26 @@
 %                   5) Vertices on each face need to be in CCW order
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function [varargout] = PWLD_volume(verts, faces, flags)
+function [varargout] = PWLD_volume(varargin)
 
 if nargin == 0
     error('--- No inputs specified. ---')
 else
+    % Collect Input Arguments
+    % -----------------------
+    nverts = varargin{5};
+    verts = varargin{1}(1:nverts,:);
+    faces = varargin{2};
+    flags = varargin{3};
     % Prepare Vertices and Dimensional Space
     % --------------------------------------
     [mv,nv] = size(verts); 
     if nv > mv, verts = verts'; end
     [nv,dim] = size(verts);
-    rcenter = get_center_point(verts);
+    rcenter = mean(verts);
     % Allocate Matrix Memory
     % ----------------------
+    a = 1/nv;
     M = zeros(nv,nv);       % mass matrix
     K = zeros(nv,nv);       % stiffness matrix
     G = cell(dim,1);        % gradient matrix
@@ -55,9 +62,9 @@ else
     % -------------
     if dim == 2
         ffaces{1} = 1:nv;
-        if nargin ~= 3
-            flags = [1,1,1];
-        end
+%         if nargin ~= 3
+%             flags = [1,1,1];
+%         end
     end
     % 3D Generation
     % -------------
@@ -81,22 +88,36 @@ else
                 ffaces{i} = faces(i,:);
             end
         end
-        if nargin ~= 3
-            flags = [1,1,1];
-        end
     end
     
     % Small error checks
     if sum(flags) ~= nargout
         error('Insufficient output variables.')
     end
+    % get ref vals
+    if dim==2
+        m = [2,1,1;1,2,1;1,1,2]./12;
+    elseif dim==3
+        m = [2,1,1,1;1,2,1,1;1,1,2,1;1,1,1,2]./20;
+    end
+    db = get_basis_grads(dim);
+    dbt = db';
+    if flags(3) == 1
+        if dim == 2
+            b = ones(1,dim+1)/6;
+        else
+            b = ones(1,dim+1)/24;
+        end
+    end
+    J = zeros(dim,dim);
     
     % Loop through Faces
     % ------------------
     for f=1:length(ffaces)
         ff = ffaces{f};
-        fcenter = get_center_point(verts(ff,:));
         ne = length(ff);
+        bb = 1/ne;
+        fcenter = mean(verts(ff,:));
         % Loop through Edges on Face
         % --------------------------
         for e=1:ne
@@ -109,29 +130,95 @@ else
             % Edge Triangle/Tetrahedron Information
             % -------------------------------------
             if dim==2
-                lverts = [verts(eee,:);rcenter];
+                lverts = [verts(eee,:);rcenter]';
             else
-                lverts = [verts(eee,:);fcenter;rcenter];
+                lverts = [verts(eee,:);fcenter;rcenter]';
             end
-            [~, invJ, detJ, svol] = get_jacobian(lverts);
+            for d=1:dim
+                J(:,d) = lverts(:,d+1) - lverts(:,1);
+            end
+            % Get other jacobian information. This explicit generation
+            % is done for speed for large problems. The elementary matrix
+            % generation is taking longer than mesh/DoF generation and system
+            % solve times combined...
+            if dim==2
+                detJ = J(1,1)*J(2,2)-J(2,1)*J(1,2);
+                invJ = [J(2,2),-J(1,2);-J(2,1),J(1,1)]/detJ;
+                svol = detJ/2;
+            else
+                detJ = J(1,1)*(J(3,3)*J(2,2)-J(3,2)*J(2,3)) - J(2,1)*(J(3,3)*J(1,2)-J(3,2)*J(1,3)) + J(3,1)*(J(2,3)*J(1,2)-J(2,2)*J(1,3));
+                invJ = [(J(3,3)*J(2,2)-J(3,2)*J(2,3)),-(J(3,3)*J(1,2)-J(3,2)*J(1,3)), (J(2,3)*J(1,2)-J(2,2)*J(1,3));...
+                       -(J(3,3)*J(2,1)-J(3,1)*J(2,3)), (J(3,3)*J(1,1)-J(3,1)*J(1,3)),-(J(2,3)*J(1,1)-J(2,1)*J(1,3));...
+                        (J(3,2)*J(2,1)-J(3,1)*J(2,2)),-(J(3,2)*J(1,1)-J(3,1)*J(1,2)), (J(2,2)*J(1,1)-J(2,1)*J(1,2))]/detJ;
+                svol = detJ/6;
+            end
             % Mass Matrix Contributions
             % -------------------------
-            if flags(1) == 1
-                m = get_ref_mass_matrix(dim)*svol;
-                M = M + matrix_contribution(dim,nv,m,eee,ff);
+            if flags(1)
+                MM = zeros(nv,nv);
+                mm = svol*m;
+                MM(eee,eee) = mm(1:2,1:2);
+                MM = MM + a*a*mm(end,end);
+                MM(eee(1),:) = MM(eee(1),:) + a*mm(1,end);
+                MM(eee(2),:) = MM(eee(2),:) + a*mm(2,end);
+                MM(:,eee(1)) = MM(:,eee(1)) + a*mm(end,1);
+                MM(:,eee(2)) = MM(:,eee(2)) + a*mm(end,2);
+                if dim == 3
+                    MM(ff,ff) = MM(ff,ff) + bb*bb*mm(end-1,end-1);
+                    MM(ff,:) = MM(ff,:) + a*bb*mm(end-1,end);
+                    MM(:,ff) = MM(:,ff) + a*bb*mm(end,end-1);
+                    MM(eee(1),ff) = MM(eee(1),ff) + bb*mm(1,end-1);
+                    MM(eee(2),ff) = MM(eee(2),ff) + bb*mm(2,end-1);
+                    MM(ff,eee(1)) = MM(ff,eee(1)) + bb*mm(end-1,1);
+                    MM(ff,eee(2)) = MM(ff,eee(2)) + bb*mm(end-1,2);
+                end
+                M = M + MM;
             end
             % Stiffness Matrix Contributions
             % ------------------------------
-            if flags(2) == 1
-                s = get_local_stiffness_matrix(dim,invJ,detJ);
-                K = K + matrix_contribution(dim,nv,s,eee,ff);
+            if flags(2)
+                s = (db*(invJ*invJ')*dbt)*svol;
+                KK = zeros(nv,nv);
+                KK(eee,eee) = s(1:2,1:2);
+                KK = KK + a*a*s(end,end);
+                KK(eee(1),:) = KK(eee(1),:) + a*s(1,end);
+                KK(eee(2),:) = KK(eee(2),:) + a*s(2,end);
+                KK(:,eee(1)) = KK(:,eee(1)) + a*s(end,1);
+                KK(:,eee(2)) = KK(:,eee(2)) + a*s(end,2);
+                if dim == 3
+                    KK(ff,ff) = KK(ff,ff) + bb*bb*s(end-1,end-1);
+                    KK(ff,:) = KK(ff,:) + a*bb*s(end-1,end);
+                    KK(:,ff) = KK(:,ff) + a*bb*s(end,end-1);
+                    KK(eee(1),ff) = KK(eee(1),ff) + bb*s(1,end-1);
+                    KK(eee(2),ff) = KK(eee(2),ff) + bb*s(2,end-1);
+                    KK(ff,eee(1)) = KK(ff,eee(1)) + bb*s(end-1,1);
+                    KK(ff,eee(2)) = KK(ff,eee(2)) + bb*s(end-1,2);
+                end
+                K = K + KK;
             end
             % Gradient Matrix Contributions
             % -----------------------------
-            if flags(3) == 1
-                g = get_local_gradient_term(dim,invJ,detJ);
+            if flags(3)
+                c = db*invJ*detJ;
                 for j=1:dim
-                    G{j} = G{j} + matrix_contribution(dim,nv,g{j},eee,ff);
+                    g = (c(:,j)*b)';
+                    GG = zeros(nv,nv);
+                    GG(eee,eee) = g(1:2,1:2);
+                    GG = GG + a*a*g(end,end);
+                    GG(eee(1),:) = GG(eee(1),:) + a*g(1,end);
+                    GG(eee(2),:) = GG(eee(2),:) + a*g(2,end);
+                    GG(:,eee(1)) = GG(:,eee(1)) + a*g(end,1);
+                    GG(:,eee(2)) = GG(:,eee(2)) + a*g(end,2);
+                    if dim == 3
+                        GG(ff,ff) = GG(ff,ff) + bb*bb*g(end-1,end-1);
+                        GG(ff,:) = GG(ff,:) + a*bb*g(end-1,end);
+                        GG(:,ff) = GG(:,ff) + a*bb*g(end,end-1);
+                        GG(eee(1),ff) = GG(eee(1),ff) + bb*g(1,end-1);
+                        GG(eee(2),ff) = GG(eee(2),ff) + bb*g(2,end-1);
+                        GG(ff,eee(1)) = GG(ff,eee(1)) + bb*g(end-1,1);
+                        GG(ff,eee(2)) = GG(ff,eee(2)) + bb*g(end-1,2);
+                    end
+                    G{j} = G{j} + GG;
                 end
             end
         end
@@ -161,16 +248,13 @@ return
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-function out = get_center_point(verts)
-out = mean(verts);
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function [J, invJ, detJ, vol] = get_jacobian(verts)
 dim = size(verts,2);
 J = zeros(dim,dim);
 for i=1:dim
     J(:,i) = verts(i+1,:)' - verts(1,:)';
 end
-invJ = J^(-1);
+invJ = inv(J);
 detJ = abs(det(J));
 if dim == 2
     vol = detJ/2;
@@ -240,8 +324,9 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function out = matrix_contribution(dim,nv,mat,v,fv)
 a = 1/nv;
+nnv = length(v);
 out = zeros(nv,nv);
-out(v,v) = mat(1:length(v),1:length(v));
+out(v,v) = mat(1:nnv,1:nnv);
 for i=1:length(v)
     out(v(i),:) = out(v(i),:) + a*mat(i,end);
     out(:,v(i)) = out(:,v(i)) + a*mat(end,i);

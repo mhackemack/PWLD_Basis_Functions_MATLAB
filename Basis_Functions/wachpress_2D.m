@@ -1,4 +1,4 @@
-function varargout = wachpress_2D(verts, xin)
+function varargout = wachpress_2D(verts, xin, faces)
 nout = nargout;
 % check if any input
 if nargin <= 1, error('No inputs specified.'); end
@@ -79,13 +79,12 @@ out = vals / sum(vals);
 return
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function grads = get_grads(verts, xin, vals, nv, nx, dim)
-grads = zeros(nx, nv, dim);
+grads = zeros(nv, dim, nx);
 n = get_edge_normals(verts,nv);
 h = get_vert_distances(verts,xin,n,nv,nx);
 for j=1:nx
-    grads(j,:,:) = get_single_grad(verts, xin(j,:), vals(j,:), nv, n, h(j,:));
+    grads(:,:,j) = get_single_grad(verts, xin(j,:), vals(j,:), nv, n, h(j,:));
 end
-return
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function grad = get_single_grad(verts, xin, val, nv, n, h)
 grad = zeros(nv,2);
